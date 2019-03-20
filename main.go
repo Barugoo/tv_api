@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 )
 
 type Config struct {
@@ -15,6 +16,18 @@ type Config struct {
 }
 
 func main() {
+
+	file, err := os.OpenFile("info.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer file.Close()
+
+	log.SetOutput(file)
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetLevel(log.InfoLevel)
+
 	cfg := Config{
 		DSN:        "root:1234@tcp(localhost:3306)/api",
 		Driver:     "mysql",
