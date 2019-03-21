@@ -6,6 +6,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
+//Config struct
+type Config struct {
+	DSN        string
+	Driver     string
+	ServerPort string
+}
+
 //TV struct
 type TV struct {
 	ID           int64  `json:"id"`

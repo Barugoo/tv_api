@@ -9,12 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Config struct {
-	DSN        string
-	Driver     string
-	ServerPort string
-}
-
 func main() {
 
 	file, err := os.OpenFile("info.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -48,6 +42,6 @@ func main() {
 	tv.HandleFunc("/{id}", service.Update).Methods(http.MethodPut)
 	tv.HandleFunc("/{id}", service.Delete).Methods(http.MethodDelete)
 
-	fmt.Println("starting server at :" + cfg.ServerPort)
-	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, r))
+	fmt.Println("starting server at :" + service.Cfg.ServerPort)
+	log.Fatal(http.ListenAndServe(":"+service.Cfg.ServerPort, r))
 }
