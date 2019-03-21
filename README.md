@@ -8,6 +8,7 @@
   `docker run -p 3306:3306 --name tv_api_test -v $(PWD):/docker-entrypoint-initdb.d -e MYSQL_ROOT_PASSWORD=1234 -e MYSQL_DATABASE=api -d mysql`
   * Container name: tv_api_test 
   * Allocated port: 3306 
+  * Wait a bit, then you can run tests
   
 
 
