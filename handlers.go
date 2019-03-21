@@ -7,13 +7,26 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-sql-driver/mysql"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/gorilla/mux"
 )
 
-//Valid constructs validates input fields and constructs error message
+//ResponseService makes a response
+func ResponseService(w http.ResponseWriter, user string, method string, status int, msg string, responseObject interface{}) {
+	log.WithFields(log.Fields{
+		"user":   user,
+		"method": method,
+		"status": status,
+	}).Error(msg)
+
+	w.WriteHeader(status)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(responseObject)
+	return
+}
+
+//Valid validates input fields and constructs error message
 func (t *TV) Valid() error {
 	errMsg := ""
 	if !(t.ID > 0) {
@@ -55,152 +68,93 @@ func (s *TVService) Create(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&input)
 	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "create",
-			"status": http.StatusBadRequest,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ResponseMsg{
+		msg := "unable to unmarshhal json. field types mismatch?"
+		ResponseService(w, r.RemoteAddr, "create", http.StatusBadRequest, msg, ResponseMsg{
 			"status":  "error",
-			"message": "unable to unmarshhal json. field types mismatch?",
+			"message": msg,
 		})
 		return
+
 	}
 
 	err = input.Valid()
 	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "create",
-			"status": http.StatusBadRequest,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ResponseMsg{
+		msg := err.Error()
+		ResponseService(w, r.RemoteAddr, "create", http.StatusBadRequest, msg, ResponseMsg{
 			"status":  "error",
-			"message": err.Error(),
+			"message": msg,
 		})
 		return
 	}
 
-	sqlStatement := "INSERT INTO tv (id, brand, manufacturer, model, year) VALUES (?, ?, ?, ?, ?)"
+	err = s.DBCreate(input)
 
-	_, err = s.DB.Exec(
-		sqlStatement,
-		input.ID,
-		input.Brand,
-		input.Manufacturer,
-		input.Model,
-		input.Year,
-	)
 	if err != nil {
-		me, ok := err.(*mysql.MySQLError)
-		if !ok || me.Number != 1062 {
-
-			log.WithFields(log.Fields{
-				"user":   r.RemoteAddr,
-				"method": "create",
-				"status": http.StatusInternalServerError,
-			}).Error(me.Message)
-
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ResponseMsg{
+		switch err {
+		case ErrDBError:
+			msg := "internal server error"
+			ResponseService(w, r.RemoteAddr, "create", http.StatusInternalServerError, msg, ResponseMsg{
 				"status":  "error",
-				"message": "database error",
+				"message": msg,
 			})
 			return
-		} else if me.Number == 1062 {
 
-			log.WithFields(log.Fields{
-				"user":   r.RemoteAddr,
-				"method": "create",
-				"status": http.StatusBadRequest,
-			}).Error(me.Message)
-
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ResponseMsg{
+		case ErrDublicateKey:
+			msg := fmt.Sprintf("duplicate key entry, id:%d", input.ID)
+			ResponseService(w, r.RemoteAddr, "create", http.StatusBadRequest, msg, ResponseMsg{
 				"status":  "error",
-				"message": "dublicate key entry",
+				"message": msg,
 			})
 			return
 		}
 	}
 
-	log.WithFields(log.Fields{
-		"user":   r.RemoteAddr,
-		"method": "create",
-		"status": http.StatusOK,
-	}).Info()
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(ResponseMsg{
-		"status": "success",
-		"data":   fmt.Sprintf("created record with id:%d", input.ID),
+	msg := fmt.Sprintf("created record with id:%d", input.ID)
+	ResponseService(w, r.RemoteAddr, "create", http.StatusOK, msg, ResponseMsg{
+		"status":  "success",
+		"message": msg,
 	})
+	return
+
 }
 
 func (s *TVService) Read(w http.ResponseWriter, r *http.Request) {
 	result := &TV{}
 	vars := mux.Vars(r)
-	_, err := strconv.Atoi(vars["id"])
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	sqlStatement := "SELECT id, brand, manufacturer, model, year FROM tv WHERE id = ?"
+	result, err = s.DBRead(id)
 
-	row := s.DB.QueryRow(sqlStatement, vars["id"])
-	err = row.Scan(&result.ID, &result.Brand, &result.Manufacturer, &result.Model, &result.Year)
 	if err != nil {
-
-		if err.Error() == "sql: no rows in result set" {
-
-			log.WithFields(log.Fields{
-				"user":   r.RemoteAddr,
-				"method": "read",
-				"status": http.StatusNotFound,
-			}).Error(err.Error())
-
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ResponseMsg{
+		switch err {
+		case ErrDBError:
+			msg := "internal server error"
+			ResponseService(w, r.RemoteAddr, "read", http.StatusInternalServerError, msg, ResponseMsg{
 				"status":  "error",
-				"message": fmt.Sprintf("record with id:%s is not found", vars["id"]),
+				"message": msg,
+			})
+			return
+
+		case ErrNotFound:
+			msg := fmt.Sprintf("record with id:%d is not found", id)
+			ResponseService(w, r.RemoteAddr, "read", http.StatusNotFound, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
 			})
 			return
 		}
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "read",
-			"status": http.StatusInternalServerError,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": "database error",
-		})
-		return
 	}
-
-	log.WithFields(log.Fields{
-		"user":   r.RemoteAddr,
-		"method": "read",
-		"status": http.StatusFound,
-	}).Info()
-
-	w.WriteHeader(http.StatusFound)
-	json.NewEncoder(w).Encode(result)
+	ResponseService(w, r.RemoteAddr, "read", http.StatusFound, "OK!", result)
+	return
 }
 
 func (s *TVService) Update(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	_, err := strconv.Atoi(vars["id"])
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -210,182 +164,105 @@ func (s *TVService) Update(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	err = decoder.Decode(&input)
 	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "update",
-			"status": http.StatusBadRequest,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ResponseMsg{
+		msg := "unable to unmarshhal json. field types mismatch?"
+		ResponseService(w, r.RemoteAddr, "update", http.StatusBadRequest, msg, ResponseMsg{
 			"status":  "error",
-			"message": "unable to unmarshhal json. field types mismatch?",
+			"message": msg,
 		})
 		return
 	}
 
 	err = input.Valid()
 	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "update",
-			"status": http.StatusBadRequest,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ResponseMsg{
+		msg := err.Error()
+		ResponseService(w, r.RemoteAddr, "update", http.StatusBadRequest, msg, ResponseMsg{
 			"status":  "error",
-			"message": err.Error(),
+			"message": msg,
 		})
 		return
 	}
 
-	sqlStatement := "UPDATE tv SET id = ?, brand = ?, manufacturer = ?, model = ?, year = ? WHERE id = ?"
+	err = s.DBUpdate(input, id)
 
-	result, err := s.DB.Exec(
-		sqlStatement,
-		input.ID,
-		input.Brand,
-		input.Manufacturer,
-		input.Model,
-		input.Year,
-		vars["id"],
-	)
 	if err != nil {
+		switch err {
+		case ErrDBError:
+			msg := "internal server error"
+			ResponseService(w, r.RemoteAddr, "update", http.StatusInternalServerError, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
 
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "update",
-			"status": http.StatusInternalServerError,
-		}).Error(err.Error())
+		case ErrNotFound:
+			msg := fmt.Sprintf("nothing to update: record with id:%d is not found", id)
+			ResponseService(w, r.RemoteAddr, "update", http.StatusNotFound, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
 
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": "database error",
-		})
-		return
+		case ErrUpdate:
+			msg := fmt.Sprintf("same data provided: record id:%d wasn't updated", id)
+			ResponseService(w, r.RemoteAddr, "update", http.StatusBadRequest, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
+
+		case ErrDublicateKey:
+			msg := fmt.Sprintf("duplicate key entry, id:%d", input.ID)
+			ResponseService(w, r.RemoteAddr, "update", http.StatusBadRequest, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
+		}
+
 	}
 
-	count, err := result.RowsAffected()
-	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "delete",
-			"status": http.StatusInternalServerError,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": "database error",
-		})
-		return
-	}
-
-	if count == 0 {
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "delete",
-			"status": http.StatusNotFound,
-		}).Error(fmt.Sprintf("nothing to update: record with id:%s is not found", vars["id"]))
-
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": fmt.Sprintf("nothing to update: record with id:%s is not found", vars["id"]),
-		})
-		return
-	}
-
-	log.WithFields(log.Fields{
-		"user":   r.RemoteAddr,
-		"method": "update",
-		"status": http.StatusOK,
-	}).Info()
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(ResponseMsg{
-		"status": "success",
-		"data":   fmt.Sprintf("updated record with id:%s", vars["id"]),
+	msg := fmt.Sprintf("updated record with id:%d", id)
+	ResponseService(w, r.RemoteAddr, "update", http.StatusOK, msg, ResponseMsg{
+		"status":  "success",
+		"message": msg,
 	})
-
+	return
 }
 
 func (s *TVService) Delete(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	_, err := strconv.Atoi(vars["id"])
+	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	sqlStatement := "DELETE FROM tv WHERE id = ?"
+	err = s.DBDelete(id)
 
-	result, err := s.DB.Exec(
-		sqlStatement,
-		vars["id"],
-	)
 	if err != nil {
+		switch err {
+		case ErrDBError:
+			msg := "internal server error"
+			ResponseService(w, r.RemoteAddr, "delete", http.StatusInternalServerError, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
 
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "delete",
-			"status": http.StatusInternalServerError,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": "database error",
-		})
-		return
+		case ErrNotFound:
+			msg := fmt.Sprintf("nothing to delete: record with id:%d is not found", id)
+			ResponseService(w, r.RemoteAddr, "delete", http.StatusNotFound, msg, ResponseMsg{
+				"status":  "error",
+				"message": msg,
+			})
+			return
+		}
 	}
 
-	count, err := result.RowsAffected()
-	if err != nil {
-
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "delete",
-			"status": http.StatusInternalServerError,
-		}).Error(err.Error())
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": "database error",
-		})
-		return
-	}
-
-	if count == 0 {
-		log.WithFields(log.Fields{
-			"user":   r.RemoteAddr,
-			"method": "delete",
-			"status": http.StatusNotFound,
-		}).Error(fmt.Sprintf("nothing to delete: record with id:%s is not found", vars["id"]))
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ResponseMsg{
-			"status":  "error",
-			"message": fmt.Sprintf("nothing to delete: record wtih id:%s is not found", vars["id"]),
-		})
-		return
-	}
-
-	log.WithFields(log.Fields{
-		"user":   r.RemoteAddr,
-		"method": "delete",
-		"status": http.StatusOK,
-	}).Info()
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(ResponseMsg{
-		"status": "success",
-		"data":   fmt.Sprintf("deleted record with id:%s", vars["id"]),
+	msg := fmt.Sprintf("deleted record with id:%d", id)
+	ResponseService(w, r.RemoteAddr, "delete", http.StatusOK, msg, ResponseMsg{
+		"status":  "success",
+		"message": msg,
 	})
+	return
 }

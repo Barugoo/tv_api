@@ -1,6 +1,10 @@
 package main
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/gorilla/mux"
+)
 
 //TV struct
 type TV struct {
@@ -16,5 +20,7 @@ type ResponseMsg map[string]interface{}
 
 //TVService handles DB connection and
 type TVService struct {
-	DB *sql.DB
+	DB     *sql.DB
+	Router *mux.Router
+	Cfg    Config
 }
