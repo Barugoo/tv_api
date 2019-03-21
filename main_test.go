@@ -21,7 +21,7 @@ import (
 type CR map[string]interface{}
 
 type Case struct {
-	Method string // GET по-умолчанию в http.NewRequest если передали пустую строку
+	Method string
 	Path   string
 	Status int
 	Body   interface{}
@@ -78,7 +78,6 @@ func TestApis(t *testing.T) {
 
 	PrepareTestApis(db)
 
-	// возможно вам будет удобно закомментировать это чтобы смотреть результат после теста
 	defer CleanupTestApis(db)
 
 	cfg := Config{
@@ -336,7 +335,6 @@ func runCases(t *testing.T, ts *httptest.Server, db *sql.DB, cases []Case) {
 		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
 
-		// fmt.Printf("[%s] body: %s\n", caseName, string(body))
 		if item.Status == 0 {
 			item.Status = http.StatusOK
 		}
@@ -352,10 +350,6 @@ func runCases(t *testing.T, ts *httptest.Server, db *sql.DB, cases []Case) {
 			continue
 		}
 
-		// reflect.DeepEqual не работает если нам приходят разные типы
-		// а там приходят разные типы (string VS interface{}) по сравнению с тем что в ожидаемом результате
-		// этот маленький грязный хак конвертит данные сначала в json, а потом обратно в interface - получаем совместимые результаты
-		// не используйте это в продакшен-коде - надо явно писать что ожидается интерфейс или использовать другой подход с точным форматом ответа
 		data, err := json.Marshal(item.Result)
 		json.Unmarshal(data, &expected)
 
