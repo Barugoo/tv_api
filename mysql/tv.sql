@@ -12,5 +12,3 @@ CREATE TABLE `tv` (
   `year` int(11) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-
-INSERT INTO `tv` (`id`, `brand`, `manufacturer`, `model`, `year`) VALUES (1,'Bravia', 'Sony', 'L4B-442', 2011);
